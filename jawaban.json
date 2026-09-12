@@ -1,0 +1,149 @@
+const fs = require('fs');
+const axios = require('axios');
+
+const TOKEN = process.env.TOKEN;
+const PHONE_ID = process.env.PHONE_NUMBER_ID;
+
+// Fungsi kirim pesan ke WA
+async function kirimWA(to, payload) {
+  await axios.post(
+    `https://graph.facebook.com/v19.0/${PHONE_ID}/messages`,
+    { messaging_product: 'whatsapp', to,...payload },
+    { headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } }
+  );
+}
+
+// 1. MENU UTAMA - Seperti di foto Garuda
+function menuUtama() {
+  return {
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      header: { type: 'text', text: 'Biro Penyelesaian Sengketa' },
+      body: { text: 'Halo Sahabat Bawaslu! Selamat datang di layanan whatsapp Informasi Penyelesaian Sengketa Proses Pemilu Bawaslu RI 👋\nSilakan pilih layanan yang dibutuhkan :' },
+      footer: { text: 'Bawaslu RI - Layanan 24 Jam' },
+      action: {
+        button: '📋 Pilih Menu',
+        sections: [{
+          title: 'Layanan Informasi Sengketa',
+          rows: [
+            { id: 'SYARAT', title: '1. Syarat Pendaftaran', description: 'Berkas syarat permohonan penyelesaian sengketa proses pemilu' },
+            { id: 'WAKTU', title: '2. Waktu Layanan', description: 'Waktu Konsultasi dan Penerimaan Permohonan' },
+            { id: 'DALUARSA', title: '3. Tenggat Waktu', description: 'Tenggat Waktu Pengajuan Permohonan' },
+            { id: 'ALUR', title: '4. Alur PSPP', description: 'Alur penyelesaian sengketa proses pemilu' },
+            { id: 'FORMULIR', title: '5. Formulir Model PSPP', description: 'Formulir sesuai dengan Perbawaslu Nomor 09 Tahun 2022' }
+          ]
+        }]
+      }
+    }
+  };
+}
+
+// 2. SUB MENU FORM - Seperti foto kedua GarudaMiles
+function menuForm() {
+  return {
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: 'Silakan pilih Form yang dibutuhkan :' },
+      action: {
+        button: '📄 Pilih Form',
+        sections: [{
+          title: 'Daftar Template Form',
+          rows: [
+            { id: 'FORM_PSP01', title: 'Form PSP-01', description: 'Permohonan PSPP' },
+            { id: 'FORM_PSP02', title: 'Form PSP-02', description: 'Surat Kuasa Khusus' },
+            { id: 'FORM_PSP10', title: 'Form PSP-10', description: 'Daftar Alat Bukti' },
+            { id: 'KEMBALI', title: '⬅️ Kembali ke Menu Utama', description: '' }
+          ]
+        }]
+      }
+    }
+  };
+}
+
+module.exports = async (req, res) => {
+  if (req.method === 'GET') {
+    if (req.query['hub.verify_token'] === process.env.VERIFY_TOKEN) return res.send(req.query['hub.challenge']);
+    return res.status(403).send('Token salah');
+  }
+
+  if (req.method === 'POST') {
+    const entry = req.body.entry?.[0]?.changes?.[0]?.value;
+    const msg = entry?.messages?.[0];
+    if (!msg) return res.status(200).send('OK');
+
+    const from = msg.from;
+    // Ambil klik tombol, bukan ketikan
+    const klikTombol = msg.interactive?.list_reply?.id || msg.text?.body || 'MENU';
+
+    let balasan;
+
+    // LOGIKA TOMBOL
+    if (klikTombol === 'MENU' || klikTombol.toLowerCase().includes('menu') || klikTombol.toLowerCase().includes('halo')) {
+      balasan = menuUtama();
+    }
+    else if (klikTombol === 'SYARAT') {
+      balasan = { type: 'text', text: { body: '✅ *SYARAT PENDAFTARAN :*\n1. Permohonan Pemohon\n2. KTP Elektronik Pemohon\n3.  Objek Sengketa\n4. Alat Bukti\n5. Daftar Alat Bukti\n6. Apabila menggunakan kuasa hukum menggunakan Surat Kuasa Khusus\n7. Kartu Tanda Advokat\n8. KTP Elektronik Kuasa Hukum\n9. Berita Acara Sumpah Advokat\n\nKetik MENU untuk kembali.' } };
+    }
+    else if (klikTombol === 'WAKTU') {
+      balasan = { type: 'text', text: { body: '✅ *WAKTU LAYANAN:*\nWaktu Konsultasi dan Penerimaan Permohonan di Bawaslu RI adalah Hari Senin-Kamis pukul 08.00-16.00 WIB dan Hari Jum'at pukul 08.00-16.30 WIB.' } };
+    }
+    else if (klikTombol === 'DALUARSA') {
+      balasan = { type: 'text', text: { body: '✅ *TENGGAT WAKTU:*\nPengajuan permohonan sengketa proses pemilu diajukan paling lama 3 hari sejak tanggal penetapan keputusan KPU' } };
+    }
+    else if (klikTombol === 'ALUR') {
+      balasan = { type: 'text', text: { body: '✅ *ALUR PSPP:*\nAlur penyelesaian sengketa proses pemilu dimulai dari penerimaan permohonan hingga putusan silakan download pada https://bit.ly/Penyelesaian_Sengketa' } };
+    }
+    else if (klikTombol === 'FORMULIR') {
+      balasan = menuForm();
+    }
+    // JIKA KLIK FORM PSP-01 -> KIRIM PDF LANGSUNG
+    else if (klikTombol === 'FORM_PSP01') {
+      // Kirim teks dulu
+      await kirimWA(from, { type: 'text', text: { body: 'Siap, ini Form PSP-01 Resmi. Silakan download di bawah ini:' } });
+      // Lalu kirim PDF
+      balasan = {
+        type: 'document',
+        document: {
+          link: 'https://drive.google.com/file/d/1MU-pOeCVwj3f1qFMx139HeL2v1wpaGqU/view?usp=sharing', // GANTI DENGAN LINK PDF BAWASLU
+          filename: 'DAFTAR FORMULIR DALAM PENYELESAIAN SENGKETA PROSES PEMILU.pdf'
+        }
+      };
+    }
+    // JIKA KLIK FORM PSP-02 -> KIRIM PDF LANGSUNG
+    else if (klikTombol === 'FORM_PSP02') {
+      // Kirim teks dulu
+      await kirimWA(from, { type: 'text', text: { body: 'Siap, ini Form PSP-02 Resmi. Silakan download di bawah ini:' } });
+      // Lalu kirim PDF
+      balasan = {
+        type: 'document',
+        document: {
+          link: 'https://drive.google.com/file/d/18BdYhNpglOxXssQJ-d7Sh6IyHpN-ch9G/view?usp=sharing', // GANTI DENGAN LINK PDF BAWASLU
+          filename: 'SURAT KUASA KHUSUS.pdf'
+        }
+      };
+    }
+    // JIKA KLIK FORM PSP-010 -> KIRIM PDF LANGSUNG
+    else if (klikTombol === 'FORM_PSP010') {
+      // Kirim teks dulu
+      await kirimWA(from, { type: 'text', text: { body: 'Siap, ini Form PSP-010 Resmi. Silakan download di bawah ini:' } });
+      // Lalu kirim PDF
+      balasan = {
+        type: 'document',
+        document: {
+          link: 'https://drive.google.com/file/d/16mdfxivi--KP2z-fb0BKMgnK04423xut/view?usp=sharing', // GANTI DENGAN LINK PDF BAWASLU
+          filename: 'DAFTAR ALAT BUKTI.pdf'
+        }
+      };
+    else if (klikTombol === 'KEMBALI') {
+      balasan = menuUtama();
+    }
+    else {
+      balasan = menuUtama();
+    }
+
+    await kirimWA(from, balasan);
+    return res.status(200).send('OK');
+  }
+};
